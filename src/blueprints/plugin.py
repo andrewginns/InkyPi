@@ -85,6 +85,30 @@ def update_plugin_instance(instance_name):
 
         if not instance_name:
             raise RuntimeError("Instance name is required")
+        
+        plugin_id = form_data.get("plugin_id")
+        
+        # Get existing plugin instance to check for duplicate filenames
+        plugin_instance = playlist_manager.find_plugin(plugin_id, instance_name)
+        if not plugin_instance:
+            return jsonify({"error": f"Plugin instance: {instance_name} does not exist"}), 500
+        
+        # For image_upload plugin, check for duplicate filenames
+        if plugin_id == "image_upload":
+            existing_files = plugin_instance.settings.get('imageFiles[]', [])
+            existing_filenames = [os.path.basename(f) for f in existing_files]
+            
+            # Check for duplicates in new uploads
+            duplicates = []
+            for key, file in request.files.items(multi=True):
+                if key == 'imageFiles[]' and file.filename:
+                    filename = os.path.basename(file.filename)
+                    if filename in existing_filenames:
+                        duplicates.append(filename)
+            
+            if duplicates:
+                return jsonify({"error": f"Duplicate files detected: {', '.join(duplicates)}. These files already exist for this instance."}), 400
+        
         plugin_settings = form_data
         plugin_settings.update(handle_request_files(request.files, request.form))
 
@@ -95,10 +119,6 @@ def update_plugin_instance(instance_name):
         refresh_settings = {}
         if refresh_settings_json:
             refresh_settings = json.loads(refresh_settings_json)
-        
-        plugin_instance = playlist_manager.find_plugin(plugin_id, instance_name)
-        if not plugin_instance:
-            return jsonify({"error": f"Plugin instance: {instance_name} does not exist"}), 500
 
         plugin_instance.settings = plugin_settings
         

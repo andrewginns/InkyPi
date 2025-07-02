@@ -137,11 +137,24 @@
             uploadedFiles["imageFiles[]"] = [];
         }
 
+        // Get all existing filenames
+        const existingFileNames = [];
+        document.querySelectorAll('#hiddenFileInputs input[name="imageFiles[]"]').forEach(input => {
+            existingFileNames.push(input.value.split('/').pop());
+        });
+
+        const duplicates = [];
+
         files.forEach(file => {
             const fileName = file.name;
 
-            // Prevent duplicate files
-            if (!uploadedFiles["imageFiles[]"].some(f => f.name === fileName)) {
+            // Check for duplicates against both uploaded files and existing files
+            const isDuplicateUpload = uploadedFiles["imageFiles[]"].some(f => f.name === fileName);
+            const isDuplicateExisting = existingFileNames.includes(fileName);
+            
+            if (isDuplicateUpload || isDuplicateExisting) {
+                duplicates.push(fileName);
+            } else {
                 uploadedFiles["imageFiles[]"].push(file);
 
                 const fileElement = document.createElement("div");
@@ -155,6 +168,11 @@
                 fileNamesDisplay.appendChild(fileElement);
             }
         });
+
+        // Show alert for duplicates
+        if (duplicates.length > 0) {
+            alert(`The following files were not added because they already exist for this instance:\n\n${duplicates.join('\n')}`);
+        }
 
         // Clear the input to allow adding the same file again if needed
         fileInput.value = "";
