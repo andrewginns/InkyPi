@@ -20,10 +20,10 @@
 </div>
 
 <!-- Image Preview Gallery -->
-<div class="form-group">
+<div class="form-group" style="margin-top: 20px;">
     <label class="form-label">Image Preview Gallery:</label>
-    <div id="imageGallery" class="image-gallery"></div>
 </div>
+<div id="imageGallery" class="image-gallery"></div>
 
 <!-- Hidden input fields to store existing file data -->
 <div id="hiddenFileInputs"></div>
@@ -31,15 +31,15 @@
 <style>
     .image-gallery {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-        gap: 10px;
-        margin-top: 10px;
-        max-height: 400px;
-        overflow-y: auto;
-        padding: 10px;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 15px;
+        margin: 10px 0;
+        padding: 15px;
         border: 1px solid #ddd;
         border-radius: 5px;
         background-color: #f9f9f9;
+        width: 100%;
+        box-sizing: border-box;
     }
     
     .image-preview {
