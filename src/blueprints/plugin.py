@@ -127,6 +127,22 @@ def update_plugin_instance(instance_name):
             plugin_instance.refresh = refresh_settings
             
         device_config.write_config()
+        
+        # Check if this plugin instance is currently active and trigger refresh
+        refresh_info = device_config.get_refresh_info()
+        if (refresh_info.refresh_type == "Playlist" and 
+            refresh_info.plugin_id == plugin_id and 
+            refresh_info.plugin_instance == instance_name):
+            
+            refresh_task = current_app.config['REFRESH_TASK']
+            from refresh_task import PlaylistRefresh
+            
+            # Find the playlist containing this plugin
+            for playlist in playlist_manager.playlists:
+                if playlist.find_plugin(plugin_id, instance_name):
+                    refresh_task.manual_update(PlaylistRefresh(playlist, plugin_instance, force=True))
+                    break
+                    
     except Exception as e:
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
     return jsonify({"success": True, "message": f"Updated plugin instance {instance_name}."})
