@@ -33,6 +33,7 @@ def plugin_page(plugin_id):
                 # add plugin instance settings to the template to prepopulate
                 template_params["plugin_settings"] = plugin_instance.settings
                 template_params["plugin_instance"] = plugin_instance_name
+                template_params["plugin_refresh"] = plugin_instance.refresh
 
             template_params["playlists"] = playlist_manager.get_playlist_names()
         except Exception as e:
@@ -88,11 +89,23 @@ def update_plugin_instance(instance_name):
         plugin_settings.update(handle_request_files(request.files, request.form))
 
         plugin_id = plugin_settings.pop("plugin_id")
+        
+        # Handle refresh settings if provided
+        refresh_settings_json = plugin_settings.pop("refresh_settings", None)
+        refresh_settings = {}
+        if refresh_settings_json:
+            refresh_settings = json.loads(refresh_settings_json)
+        
         plugin_instance = playlist_manager.find_plugin(plugin_id, instance_name)
         if not plugin_instance:
             return jsonify({"error": f"Plugin instance: {instance_name} does not exist"}), 500
 
         plugin_instance.settings = plugin_settings
+        
+        # Update refresh settings if provided
+        if refresh_settings:
+            plugin_instance.refresh = refresh_settings
+            
         device_config.write_config()
     except Exception as e:
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
