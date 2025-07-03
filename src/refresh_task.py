@@ -176,11 +176,11 @@ class RefreshTask:
         """Determines the next plugin to refresh based on the active playlist, plugin cycle interval, and current time."""
         playlist = playlist_manager.determine_active_playlist(current_dt)
         if not playlist:
-            playlist_manager.active_playlist = None
+            # active_playlist field removed - now calculated in real-time
             logger.info(f"No active playlist determined.")
             return None, None
 
-        playlist_manager.active_playlist = playlist.name
+        # active_playlist field removed - now calculated in real-time
         if not playlist.plugins:
             logger.info(f"Active playlist '{playlist.name}' has no plugins.")
             return None, None
@@ -191,20 +191,8 @@ class RefreshTask:
         # Check if enough time has passed based on global interval
         global_should_refresh = PlaylistManager.should_refresh(latest_refresh_dt, plugin_cycle_interval, current_dt)
         
-        # Look for a plugin that needs refreshing
-        plugin_to_refresh = None
-        checked_count = 0
-        
-        # Check each plugin in order to find one that needs refreshing
-        while checked_count < len(playlist.plugins):
-            plugin = playlist.get_next_plugin()
-            
-            # Check if this specific plugin should refresh based on its own settings
-            if plugin.should_refresh(current_dt) or global_should_refresh:
-                plugin_to_refresh = plugin
-                break
-                
-            checked_count += 1
+        # Look for a plugin that needs refreshing using optimized method
+        plugin_to_refresh = playlist.find_plugin_to_refresh(current_dt, global_should_refresh)
         
         if plugin_to_refresh:
             logger.info(f"Determined next plugin. | active_playlist: {playlist.name} | plugin_instance: {plugin_to_refresh.name}")

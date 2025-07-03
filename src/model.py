@@ -70,7 +70,9 @@ class PlaylistManager:
     def __init__(self, playlists=[], active_playlist=None):
         """Initialize PlaylistManager with a list of playlists."""
         self.playlists = playlists
-        self.active_playlist = active_playlist
+        # active_playlist field removed - now calculated in real-time
+        self._active_playlist_cache = {}
+        self._cache_expiry = None
 
     def get_playlist_names(self):
         """Returns a list of all playlist names."""
@@ -90,19 +92,90 @@ class PlaylistManager:
         return None
 
     def determine_active_playlist(self, current_datetime):
-        """Determine the active playlist based on the current time."""
-        current_time = current_datetime.strftime("%H:%M")  # Get current time in "HH:MM" format
-
-        # get active playlists that have plugins
-        active_playlists = [p for p in self.playlists if p.is_active(current_time)]
-        if not active_playlists:
+        """Determine the active playlist based on the current time with caching and comprehensive error handling."""
+        from datetime import timedelta
+        
+        # Validate input
+        if not hasattr(current_datetime, 'strftime'):
+            logger.error(f"Invalid datetime provided to determine_active_playlist: expected datetime object, got {type(current_datetime)}")
+            return None
+        
+        # Check cache first
+        try:
+            cache_key = current_datetime.strftime("%H:%M")
+        except Exception as e:
+            logger.error(f"Error formatting datetime: {e}")
+            return None
+            
+        if (self._cache_expiry and 
+            current_datetime < self._cache_expiry and 
+            cache_key in self._active_playlist_cache):
+            cached_playlist = self._active_playlist_cache[cache_key]
+            logger.debug(f"Using cached active playlist: '{cached_playlist.name if cached_playlist else None}'")
+            return cached_playlist
+        
+        # Calculate active playlist
+        active_playlist = self._calculate_active_playlist(current_datetime)
+        
+        # Update cache - cache for 1 minute to avoid repeated calculations
+        self._active_playlist_cache = {cache_key: active_playlist}
+        self._cache_expiry = current_datetime + timedelta(minutes=1)
+        
+        return active_playlist
+    
+    def _calculate_active_playlist(self, current_datetime):
+        """Internal method to calculate active playlist without caching."""
+        if not self.playlists:
+            logger.info("No playlists configured in playlist manager")
+            return None
+        
+        try:
+            current_time = current_datetime.strftime("%H:%M")  # Get current time in "HH:MM" format
+        except (AttributeError, ValueError) as e:
+            logger.error(f"Invalid datetime provided to determine_active_playlist: {e}")
             return None
 
-        # Sort playlists by priority
-        active_playlists.sort(key=lambda p: p.get_priority())
-        playlist = active_playlists[0]
+        # Filter active playlists with plugins, handling errors gracefully
+        active_playlists = []
+        for playlist in self.playlists:
+            try:
+                if playlist.is_active(current_time) and playlist.plugins:
+                    active_playlists.append(playlist)
+            except Exception as e:
+                logger.error(f"Error checking if playlist '{getattr(playlist, 'name', 'unknown')}' is active: {e}")
+                continue
+        
+        if not active_playlists:
+            logger.debug(f"No active playlists with plugins found at {current_time}")
+            return None
 
+        # Sort by priority with tie-breaking by name for consistency
+        try:
+            active_playlists.sort(key=lambda p: (p.get_priority(), p.name))
+        except Exception as e:
+            logger.error(f"Error sorting playlists by priority: {e}")
+            # Return first playlist as fallback if sorting fails
+            return active_playlists[0] if active_playlists else None
+
+        playlist = active_playlists[0]
+        logger.debug(f"Active playlist determined: '{playlist.name}' at {current_time}")
+        
         return playlist
+
+    def get_active_playlist_name(self, current_datetime=None):
+        """Get the name of the currently active playlist in real-time."""
+        if current_datetime is None:
+            from datetime import datetime
+            current_datetime = datetime.now()
+        
+        active = self.determine_active_playlist(current_datetime)
+        return active.name if active else None
+    
+    def invalidate_cache(self):
+        """Invalidate the active playlist cache. Should be called when playlists are modified."""
+        self._active_playlist_cache = {}
+        self._cache_expiry = None
+        logger.debug("Active playlist cache invalidated")
 
     def get_playlist(self, playlist_name):
         """Returns the playlist with the specified name."""
@@ -114,6 +187,7 @@ class PlaylistManager:
         playlist = self.get_playlist(playlist_name)
         if playlist:
             if playlist.add_plugin(plugin_data):
+                self.invalidate_cache()  # Invalidate cache when playlist is modified
                 return True
         else:
             logger.warning(f"Playlist '{playlist_name}' not found.")
@@ -126,6 +200,7 @@ class PlaylistManager:
         if not end_time:
             end_time = PlaylistManager.DEFAULT_PLAYLIST_END
         self.playlists.append(Playlist(name, start_time, end_time))
+        self.invalidate_cache()  # Invalidate cache when playlist is added
         return True
 
     def update_playlist(self, old_name, new_name, start_time, end_time):
@@ -135,6 +210,7 @@ class PlaylistManager:
             playlist.name = new_name
             playlist.start_time = start_time
             playlist.end_time = end_time
+            self.invalidate_cache()  # Invalidate cache when playlist is updated
             return True
         logger.warning(f"Playlist '{old_name}' not found.")
         return False
@@ -142,18 +218,19 @@ class PlaylistManager:
     def delete_playlist(self, name):
         """Deletes the playlist with the specified name."""
         self.playlists = [p for p in self.playlists if p.name != name]
+        self.invalidate_cache()  # Invalidate cache when playlist is deleted
 
     def to_dict(self):
         return {
-            "playlists": [p.to_dict() for p in self.playlists],
-            "active_playlist": self.active_playlist
+            "playlists": [p.to_dict() for p in self.playlists]
+            # active_playlist field removed - now calculated in real-time
         }
 
     @classmethod
     def from_dict(cls, data):
         return cls(
-            playlists=[Playlist.from_dict(p) for p in data.get("playlists", [])],
-            active_playlist=data.get("active_playlist")
+            playlists=[Playlist.from_dict(p) for p in data.get("playlists", [])]
+            # active_playlist parameter removed - now calculated in real-time
         )
 
     @staticmethod
@@ -183,8 +260,35 @@ class Playlist:
         self.current_plugin_index = current_plugin_index
 
     def is_active(self, current_time):
-        """Check if the playlist is active at the given time."""
-        return self.start_time <= current_time < self.end_time
+        """Check if the playlist is active at the given time.
+        
+        Handles cross-midnight playlists (e.g., 22:00 to 06:00) and special
+        cases like "24:00" as end time.
+        """
+        from datetime import datetime, time as dt_time
+        
+        try:
+            # Parse current time
+            current_dt = datetime.strptime(current_time, "%H:%M").time()
+            start_dt = datetime.strptime(self.start_time, "%H:%M").time()
+            
+            # Handle special case of "24:00" as end time (midnight)
+            if self.end_time == "24:00":
+                end_dt = dt_time(23, 59, 59, 999999)  # Just before midnight
+            else:
+                end_dt = datetime.strptime(self.end_time, "%H:%M").time()
+            
+            # Handle cross-midnight playlists (e.g., 22:00 to 06:00)
+            if start_dt > end_dt:
+                # Playlist spans midnight
+                return current_dt >= start_dt or current_dt < end_dt
+            else:
+                # Normal case: playlist within same day
+                return start_dt <= current_dt < end_dt
+                
+        except ValueError as e:
+            logger.error(f"Invalid time format in playlist '{self.name}': {e}")
+            return False
 
     def add_plugin(self, plugin_data):
         """Add a new plugin instance to the playlist."""
@@ -225,6 +329,43 @@ class Playlist:
             self.current_plugin_index = (self.current_plugin_index + 1) % len(self.plugins)
         
         return self.plugins[self.current_plugin_index]
+
+    def find_plugin_to_refresh(self, current_dt, global_should_refresh):
+        """Find the next plugin that needs refreshing without advancing indices unnecessarily.
+        
+        This method checks all plugins to find one that needs refresh without
+        modifying the current_plugin_index unless a plugin is found that needs refresh.
+        
+        Args:
+            current_dt: Current datetime for checking refresh schedules
+            global_should_refresh: Whether global refresh interval has elapsed
+            
+        Returns:
+            Plugin instance that needs refresh, or None if no plugins need refresh
+        """
+        if not self.plugins:
+            return None
+        
+        # First, check if current plugin needs refresh
+        if self.current_plugin_index is not None and 0 <= self.current_plugin_index < len(self.plugins):
+            current_plugin = self.plugins[self.current_plugin_index]
+            if current_plugin.should_refresh(current_dt) or global_should_refresh:
+                logger.debug(f"Current plugin '{current_plugin.name}' needs refresh")
+                return current_plugin
+        
+        # Check all plugins starting from next index
+        start_index = (self.current_plugin_index + 1) if self.current_plugin_index is not None else 0
+        for i in range(len(self.plugins)):
+            index = (start_index + i) % len(self.plugins)
+            plugin = self.plugins[index]
+            
+            if plugin.should_refresh(current_dt) or global_should_refresh:
+                logger.debug(f"Plugin '{plugin.name}' at index {index} needs refresh")
+                self.current_plugin_index = index
+                return plugin
+        
+        logger.debug("No plugins need refresh in playlist")
+        return None
 
     def get_priority(self):
         """Determine priority of a playlist, based on the time range"""

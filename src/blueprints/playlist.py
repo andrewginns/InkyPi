@@ -105,8 +105,8 @@ def create_playlist():
         return jsonify({"error": "Playlist name is required"}), 400
     if not start_time or not end_time:
         return jsonify({"error": "Start time and End time are required"}), 400
-    if end_time <= start_time:
-        return jsonify({"error": "End time must be greater than start time"}), 400
+    # Allow cross-midnight playlists (e.g., 22:00 to 06:00)
+    # Validation removed to support playlists that span midnight
 
     try:
         playlist = playlist_manager.get_playlist(playlist_name)
@@ -141,8 +141,8 @@ def update_playlist(playlist_name):
     end_time = data.get("end_time")
     if not new_name or not start_time or not end_time:
         return jsonify({"success": False, "error": "Missing required fields"}), 400
-    if end_time <= start_time:
-        return jsonify({"error": "End time must be greater than start time"}), 400
+    # Allow cross-midnight playlists (e.g., 22:00 to 06:00)
+    # Validation removed to support playlists that span midnight
     
     playlist = playlist_manager.get_playlist(playlist_name)
     if not playlist:
