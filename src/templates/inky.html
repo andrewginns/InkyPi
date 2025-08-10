@@ -21,8 +21,18 @@
         </header>
 
         <!-- Display the current image -->
-        <div class="image-container">
-            <img src="{{ url_for('static', filename='images/current_image.png') }}" alt="Current Image">
+        <div class="image-container" id="imageContainer">
+            <img src="{{ url_for('static', filename='images/current_image.png') }}" alt="Current Image" id="currentImage">
+            <button class="nav-arrow nav-arrow-left" id="prevButton" title="Previous Image">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+            </button>
+            <button class="nav-arrow nav-arrow-right" id="nextButton" title="Next Image">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+            </button>
         </div>
 
         <!-- Separator -->
@@ -36,5 +46,42 @@
             {% endfor %}
         </div>
     </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const prevButton = document.getElementById('prevButton');
+            const nextButton = document.getElementById('nextButton');
+            const currentImage = document.getElementById('currentImage');
+            
+            // Check if playlist is active
+            fetch('/playlist_status')
+                .then(response => response.json())
+                .then(data => {
+                    if (!data.playlist_active) {
+                        prevButton.style.display = 'none';
+                        nextButton.style.display = 'none';
+                    }
+                })
+                .catch(error => console.error('Error checking playlist status:', error));
+            
+            // Navigation functions
+            function navigate(direction) {
+                fetch(`/navigate/${direction}`, { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            // Reload the image with timestamp to force refresh
+                            currentImage.src = currentImage.src.split('?')[0] + '?t=' + new Date().getTime();
+                        } else {
+                            console.error('Navigation failed:', data.error);
+                        }
+                    })
+                    .catch(error => console.error('Navigation error:', error));
+            }
+            
+            prevButton.addEventListener('click', () => navigate('previous'));
+            nextButton.addEventListener('click', () => navigate('next'));
+        });
+    </script>
 <body>
 </html>
