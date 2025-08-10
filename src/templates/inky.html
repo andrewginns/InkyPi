@@ -33,6 +33,13 @@
                     <polyline points="9 18 15 12 9 6"></polyline>
                 </svg>
             </button>
+            <div class="preview-indicator" id="previewIndicator" style="display: none;">
+                <span>Preview</span>
+            </div>
+            <button class="apply-button" id="applyButton" style="display: none;">
+                <span id="applyButtonText">Apply to Display</span>
+                <div class="loading-indicator small" id="applyLoader" style="display: none;"></div>
+            </button>
         </div>
 
         <!-- Separator -->
@@ -52,35 +59,143 @@
             const prevButton = document.getElementById('prevButton');
             const nextButton = document.getElementById('nextButton');
             const currentImage = document.getElementById('currentImage');
+            const previewIndicator = document.getElementById('previewIndicator');
+            const applyButton = document.getElementById('applyButton');
+            const applyButtonText = document.getElementById('applyButtonText');
+            const applyLoader = document.getElementById('applyLoader');
             
-            // Check if playlist is active
-            fetch('/playlist_status')
-                .then(response => response.json())
-                .then(data => {
-                    if (!data.playlist_active) {
+            let playlistImages = [];
+            let currentDisplayIndex = 0;
+            let previewIndex = 0;
+            let isPlaylistActive = false;
+            
+            // Initialize playlist data
+            async function initializePlaylist() {
+                try {
+                    // Check if playlist is active
+                    const statusResponse = await fetch('/playlist_status');
+                    const statusData = await statusResponse.json();
+                    
+                    isPlaylistActive = statusData.playlist_active;
+                    
+                    if (!isPlaylistActive) {
                         prevButton.style.display = 'none';
                         nextButton.style.display = 'none';
+                        return;
                     }
-                })
-                .catch(error => console.error('Error checking playlist status:', error));
-            
-            // Navigation functions
-            function navigate(direction) {
-                fetch(`/navigate/${direction}`, { method: 'POST' })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            // Reload the image with timestamp to force refresh
-                            currentImage.src = currentImage.src.split('?')[0] + '?t=' + new Date().getTime();
-                        } else {
-                            console.error('Navigation failed:', data.error);
+                    
+                    // Get playlist images
+                    const imagesResponse = await fetch('/playlist/images');
+                    const imagesData = await imagesResponse.json();
+                    
+                    if (imagesData.success) {
+                        playlistImages = imagesData.images;
+                        currentDisplayIndex = imagesData.current_index || 0;
+                        previewIndex = currentDisplayIndex;
+                        
+                        // Debug logging
+                        console.log('Playlist initialized:');
+                        console.log('Current display index:', currentDisplayIndex);
+                        console.log('Images:', playlistImages);
+                        console.log('Currently displayed image should be:', playlistImages[currentDisplayIndex]);
+                        
+                        // Update the image to match what the system thinks is current
+                        // This ensures we're in sync with the backend
+                        if (playlistImages[currentDisplayIndex]) {
+                            currentImage.src = playlistImages[currentDisplayIndex].url + '?t=' + new Date().getTime();
                         }
-                    })
-                    .catch(error => console.error('Navigation error:', error));
+                    }
+                } catch (error) {
+                    console.error('Error initializing playlist:', error);
+                    prevButton.style.display = 'none';
+                    nextButton.style.display = 'none';
+                }
             }
             
-            prevButton.addEventListener('click', () => navigate('previous'));
-            nextButton.addEventListener('click', () => navigate('next'));
+            // Update preview image
+            function updatePreview() {
+                if (playlistImages.length > 0 && previewIndex >= 0 && previewIndex < playlistImages.length) {
+                    currentImage.src = playlistImages[previewIndex].url + '?t=' + new Date().getTime();
+                    console.log('Updating preview to index:', previewIndex, 'Image:', playlistImages[previewIndex].name);
+                }
+                
+                // Show/hide preview indicator and apply button
+                const isPreview = previewIndex !== currentDisplayIndex;
+                console.log('Preview index:', previewIndex, 'Display index:', currentDisplayIndex, 'Is preview?', isPreview);
+                previewIndicator.style.display = isPreview ? 'block' : 'none';
+                applyButton.style.display = isPreview ? 'block' : 'none';
+            }
+            
+            // Navigation functions (preview only)
+            function navigatePreview(direction) {
+                if (playlistImages.length === 0) return;
+                
+                const oldIndex = previewIndex;
+                if (direction === 'next') {
+                    previewIndex = (previewIndex + 1) % playlistImages.length;
+                } else {
+                    previewIndex = (previewIndex - 1 + playlistImages.length) % playlistImages.length;
+                }
+                
+                console.log('Navigate', direction, ': from index', oldIndex, 'to', previewIndex);
+                updatePreview();
+            }
+            
+            // Apply preview to display
+            async function applyToDisplay() {
+                // Disable buttons and show loader
+                applyButton.disabled = true;
+                prevButton.disabled = true;
+                nextButton.disabled = true;
+                applyButtonText.style.display = 'none';
+                applyLoader.style.display = 'inline-block';
+                
+                try {
+                    const response = await fetch(`/navigate/to/${previewIndex}`, { 
+                        method: 'POST' 
+                    });
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        currentDisplayIndex = previewIndex;
+                        updatePreview(); // This will hide the preview indicator
+                        
+                        // Brief success feedback
+                        applyButtonText.textContent = 'Applied!';
+                        applyButtonText.style.display = 'inline';
+                        applyLoader.style.display = 'none';
+                        
+                        setTimeout(() => {
+                            applyButtonText.textContent = 'Apply to Display';
+                        }, 1500);
+                    } else {
+                        console.error('Failed to apply:', data.error);
+                        applyButtonText.textContent = 'Error - Try Again';
+                        applyButtonText.style.display = 'inline';
+                        applyLoader.style.display = 'none';
+                    }
+                } catch (error) {
+                    console.error('Error applying to display:', error);
+                    applyButtonText.textContent = 'Error - Try Again';
+                    applyButtonText.style.display = 'inline';
+                    applyLoader.style.display = 'none';
+                } finally {
+                    // Re-enable buttons
+                    setTimeout(() => {
+                        applyButton.disabled = false;
+                        prevButton.disabled = false;
+                        nextButton.disabled = false;
+                    }, 1000);
+                }
+            }
+            
+            // Event listeners
+            prevButton.addEventListener('click', () => navigatePreview('previous'));
+            nextButton.addEventListener('click', () => navigatePreview('next'));
+            applyButton.addEventListener('click', applyToDisplay);
+            
+            // Initialize on load
+            initializePlaylist();
         });
     </script>
 <body>

@@ -121,6 +121,62 @@ body {
     }
 }
 
+/* Preview indicator */
+.preview-indicator {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background-color: #ff9800;
+    color: white;
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    z-index: 10;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Apply button */
+.apply-button {
+    position: absolute;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #1abc9c;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 20px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.apply-button:hover:not(:disabled) {
+    background-color: #16a085;
+    transform: translateX(-50%) translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.apply-button:active:not(:disabled) {
+    transform: translateX(-50%) translateY(0);
+}
+
+.apply-button:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+.apply-button .loading-indicator {
+    margin: 0;
+}
+
 /* Separator styling */
 .separator {
     width: 100%;
