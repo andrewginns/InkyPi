@@ -31,7 +31,7 @@ class AIText(BasePlugin):
         title = settings.get("title")
 
         text_model = settings.get('textModel')
-        if not text_model or text_model not in ['gpt-4o', 'gpt-4o-mini']:
+        if not text_model:
             raise RuntimeError("Text Model is required.")
 
         text_prompt = settings.get('textPrompt', '')
@@ -61,7 +61,7 @@ class AIText(BasePlugin):
     
     @staticmethod
     def fetch_text_prompt(ai_client, model, text_prompt):
-        logger.info(f"Getting random text prompt from input {text_prompt}")
+        logger.info(f"Getting random text prompt from input {text_prompt}, model: {model}")
 
         system_content = (
             "You are a highly intelligent text generation assistant. Generate concise, "

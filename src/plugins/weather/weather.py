@@ -30,8 +30,8 @@ WEATHER_URL = "https://api.openweathermap.org/data/3.0/onecall?lat={lat}&lon={lo
 AIR_QUALITY_URL = "http://api.openweathermap.org/data/2.5/air_pollution?lat={lat}&lon={long}&appid={api_key}"
 GEOCODING_URL = "http://api.openweathermap.org/geo/1.0/reverse?lat={lat}&lon={long}&limit=1&appid={api_key}"
 
-OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={long}&hourly=temperature_2m,precipitation_probability,relative_humidity_2m,surface_pressure,visibility&daily=weathercode,temperature_2m_max,temperature_2m_min,sunrise,sunset&current_weather=true&timezone=auto&models=best_match&forecast_days={forecast_days}"
-OPEN_METEO_AIR_QUALITY_URL = "https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={long}&hourly=pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone,aerosol_optical_depth,uv_index,uv_index_clear_sky&timezone=auto"
+OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={long}&hourly=temperature_2m,precipitation,precipitation_probability,relative_humidity_2m,surface_pressure,visibility&daily=weathercode,temperature_2m_max,temperature_2m_min,sunrise,sunset&current_weather=true&timezone=auto&models=best_match&forecast_days={forecast_days}"
+OPEN_METEO_AIR_QUALITY_URL = "https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={long}&hourly=european_aqi,uv_index,uv_index_clear_sky&timezone=auto"
 OPEN_METEO_UNIT_PARAMS = {
     "standard": "temperature_unit=kelvin&wind_speed_unit=ms&precipitation_unit=mm",
     "metric":   "temperature_unit=celsius&wind_speed_unit=ms&precipitation_unit=mm",
@@ -131,7 +131,7 @@ class Weather(BasePlugin):
         data['forecast'] = self.parse_forecast(weather_data.get('daily'), tz)
         data['data_points'] = self.parse_data_points(weather_data, aqi_data, tz, units, time_format)
 
-        data['hourly_forecast'] = self.parse_hourly(weather_data.get('hourly'), tz, time_format)
+        data['hourly_forecast'] = self.parse_hourly(weather_data.get('hourly'), tz, time_format, units)
         return data
 
     def parse_open_meteo_data(self, weather_data, aqi_data, tz, units, time_format):
@@ -280,7 +280,12 @@ class Weather(BasePlugin):
                 phase_raw = moon.get("Phase", "New Moon")
                 illum_pct = float(moon.get("Illumination", 0)) * 100
                 phase_name = phase_raw.lower().replace(" ", "")
-                phase_name = "newmoon" if phase_name == "darkmoon" else phase_name
+                if phase_name == "darkmoon":
+                    phase_name = "newmoon"
+                elif phase_name in ("3rdquarter", "thirdquarter"):
+                    phase_name = "lastquarter"
+                elif phase_name in ("1stquarter", "firstquarter"):
+                    phase_name = "firstquarter"
             except Exception:
                 illum_pct = 0
                 phase_name = "newmoon"
@@ -298,14 +303,20 @@ class Weather(BasePlugin):
 
         return forecast
 
-    def parse_hourly(self, hourly_forecast, tz, time_format):
+    def parse_hourly(self, hourly_forecast, tz, time_format, units):
         hourly = []
         for hour in hourly_forecast[:24]:
             dt = datetime.fromtimestamp(hour.get('dt'), tz=timezone.utc).astimezone(tz)
+            rain_mm = hour.get("rain", {}).get("1h", 0.0)
+            if units == "imperial":
+                rain = rain_mm / 25.4
+            else:
+                rain = rain_mm 
             hour_forecast = {
                 "time": self.format_time(dt, time_format, hour_only=True),
                 "temperature": int(hour.get("temp")),
-                "precipitiation": hour.get("pop")
+                "precipitation": hour.get("pop"),
+                "rain": round(rain, 2)
             }
             hourly.append(hour_forecast)
         return hourly
@@ -315,7 +326,7 @@ class Weather(BasePlugin):
         times = hourly_data.get('time', [])
         temperatures = hourly_data.get('temperature_2m', [])
         precipitation_probabilities = hourly_data.get('precipitation_probability', [])
-
+        rain = hourly_data.get('precipitation', [])
         current_time_in_tz = datetime.now(tz)
         start_index = 0
         for i, time_str in enumerate(times):
@@ -333,13 +344,15 @@ class Weather(BasePlugin):
         sliced_times = times[start_index:]
         sliced_temperatures = temperatures[start_index:]
         sliced_precipitation_probabilities = precipitation_probabilities[start_index:]
+        sliced_rain = rain[start_index:]
 
         for i in range(min(24, len(sliced_times))):
             dt = datetime.fromisoformat(sliced_times[i]).astimezone(tz)
             hour_forecast = {
                 "time": self.format_time(dt, time_format, True),
                 "temperature": int(sliced_temperatures[i]) if i < len(sliced_temperatures) else 0,
-                "precipitiation": (sliced_precipitation_probabilities[i] / 100) if i < len(sliced_precipitation_probabilities) else 0
+                "precipitation": (sliced_precipitation_probabilities[i] / 100) if i < len(sliced_precipitation_probabilities) else 0,
+                "rain": (sliced_rain[i]) if i < len(sliced_rain) else 0
             }
             hourly.append(hour_forecast)
         return hourly
@@ -541,21 +554,24 @@ class Weather(BasePlugin):
             "icon": self.get_plugin_dir('icons/visibility.png')
         })
 
-        # Air Quality (PM2.5)
-        pm25_hourly_times = aqi_data.get('hourly', {}).get('time', [])
-        pm25_values = aqi_data.get('hourly', {}).get('pm2_5', [])
-        current_pm25 = "N/A"
-        for i, time_str in enumerate(pm25_hourly_times):
+        # Air Quality
+        aqi_hourly_times = aqi_data.get('hourly', {}).get('time', [])
+        aqi_values = aqi_data.get('hourly', {}).get('european_aqi', [])
+        current_aqi = "N/A"
+        for i, time_str in enumerate(aqi_hourly_times):
             try:
                 if datetime.fromisoformat(time_str).astimezone(tz).hour == current_time.hour:
-                    current_pm25 = round(pm25_values[i], 1)
+                    current_aqi = round(aqi_values[i], 1)
                     break
             except ValueError:
-                logger.warning(f"Could not parse time string {time_str} for PM2.5.")
+                logger.warning(f"Could not parse time string {time_str} for AQI.")
                 continue
+        scale = ""
+        if current_aqi:
+            scale = ["Good","Fair","Moderate","Poor","Very Poor","Ext Poor"][min(current_aqi//20,5)]
         data_points.append({
-            "label": "Air Quality (PM2.5)", "measurement": current_pm25,
-            "unit": 'µg/m³', "icon": self.get_plugin_dir('icons/aqi.png')
+            "label": "Air Quality", "measurement": current_aqi,
+            "unit": scale, "icon": self.get_plugin_dir('icons/aqi.png')
         })
 
         return data_points

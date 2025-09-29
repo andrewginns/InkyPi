@@ -41,8 +41,12 @@ FONTS = {
 }
 
 def resolve_path(file_path):
-    src_path = Path(os.getenv("SRC_DIR"))
-
+    src_dir = os.getenv("SRC_DIR")
+    if src_dir is None:
+        # Default to the src directory
+        src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    
+    src_path = Path(src_dir)
     return str(src_path / file_path)
 
 def get_ip_address():

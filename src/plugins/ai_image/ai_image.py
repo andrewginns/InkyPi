@@ -2,16 +2,16 @@ from plugins.base_plugin.base_plugin import BasePlugin
 from openai import OpenAI
 from PIL import Image
 from io import BytesIO
+import base64
 import requests
 import logging
 
 logger = logging.getLogger(__name__)
 
-IMAGE_MODELS = ["dall-e-3", "dall-e-2"]
+IMAGE_MODELS = ["dall-e-3", "dall-e-2", "gpt-image-1"]
 DEFAULT_IMAGE_MODEL = "dall-e-3"
-
-IMAGE_QUALITIES = ["hd", "standard"]
 DEFAULT_IMAGE_QUALITY = "standard"
+
 class AIImage(BasePlugin):
     def generate_settings_template(self):
         template_params = super().generate_settings_template()
@@ -32,10 +32,8 @@ class AIImage(BasePlugin):
 
         image_model = settings.get('imageModel', DEFAULT_IMAGE_MODEL)
         if image_model not in IMAGE_MODELS:
-            image_model = DEFAULT_IMAGE_MODEL
-        image_quality = settings.get('quality', DEFAULT_IMAGE_QUALITY)
-        if image_quality not in IMAGE_QUALITIES:
-            image_quality = DEFAULT_IMAGE_QUALITY
+            raise RuntimeError("Invalid Image Model provided.")
+        image_quality = settings.get('quality', "medium" if image_model == "gpt-image-1" else "standard")
         randomize_prompt = settings.get('randomizePrompt') == 'true'
 
         image = None
@@ -57,7 +55,7 @@ class AIImage(BasePlugin):
         return image
 
     @staticmethod
-    def fetch_image(ai_client, prompt, model="dalle-e-3", quality="standard", orientation="horizontal"):
+    def fetch_image(ai_client, prompt, model="dall-e-3", quality="standard", orientation="horizontal"):
         logger.info(f"Generating image for prompt: {prompt}, model: {model}, quality: {quality}")
         prompt += (
             ". The image should fully occupy the entire canvas without any frames, "
@@ -76,12 +74,19 @@ class AIImage(BasePlugin):
         if model == "dall-e-3":
             args["size"] = "1792x1024" if orientation == "horizontal" else "1024x1792"
             args["quality"] = quality
+        elif model == "gpt-image-1":
+            args["size"] = "1536x1024" if orientation == "horizontal" else "1024x1536"
+            args["quality"] = quality
 
         response = ai_client.images.generate(**args)
-        image_url = response.data[0].url
-        response = requests.get(image_url)
-        img = Image.open(BytesIO(response.content))
-
+        if model in ["dall-e-3", "dall-e-2"]:
+            image_url = response.data[0].url
+            response = requests.get(image_url)
+            img = Image.open(BytesIO(response.content))
+        elif model == "gpt-image-1":
+            image_base64 = response.data[0].b64_json
+            image_bytes = base64.b64decode(image_base64)
+            img = Image.open(BytesIO(image_bytes))
         return img
 
     @staticmethod
